@@ -95,22 +95,33 @@
         }
         .acciones {
             display: flex;
-            gap: 6px;
+            gap: 8px;
+            align-items: center;
         }
-        .btn {
+        .select-status {
+            padding: 5px 10px;
+            border-radius: 4px;
+            border: 1px solid #cbd5e1;
+            background-color: white;
+            font-size: 11px;
+            font-weight: 600;
+            color: #334155;
+            cursor: pointer;
+        }
+        .btn-excel {
+            background-color: #16a34a;
             color: white;
             border: none;
-            padding: 5px 12px;
+            padding: 5px 14px;
             border-radius: 4px;
-            font-weight: 500;
+            font-weight: bold;
             cursor: pointer;
             font-size: 11px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
         }
-        .btn-teams { background-color: #4f46e5; }
-        .btn-teams:hover { background-color: #4338ca; }
-        .btn-pcp { background-color: #0d9488; }
-        .btn-pcp:hover { background-color: #0f766e; }
-        .btn.success { background-color: #166534 !important; }
+        .btn-excel:hover { background-color: #15803d; }
 
         .tabla-contenedor {
             max-height: 480px;
@@ -167,8 +178,14 @@
             <div class="header-tabla">
                 <div id="resumenContadores" class="indicador-resultados">Mostrando registros...</div>
                 <div class="acciones">
-                    <button class="btn btn-teams" id="btnTeams" onclick="copiarFormato('teams')">📋 Copiar para Teams</button>
-                    <button class="btn btn-pcp" id="btnPcp" onclick="copiarFormato('pcp')">📊 Copiar para PCP</button>
+                    <label style="font-size: 11px;">Filtrar Estatus:</label>
+                    <select id="selectStatus" class="select-status" onchange="filtrarYRenderizar()">
+                        <option value="TODOS">📊 Todos los registros</option>
+                        <option value="PENDIENTE">⏳ Solo Pendientes</option>
+                        <option value="CONCLUIDO">✅ Solo Concluidos</option>
+                        <option value="NO_CARGADO">❌ Solo No Cargados (Faltantes)</option>
+                    </select>
+                    <button class="btn-excel" onclick="exportarExcel()">📥 Exportar reporte Excel</button>
                 </div>
             </div>
             
@@ -196,6 +213,7 @@
     const fileInput = document.getElementById('fileInput');
     const txtCliente = document.getElementById('txtCliente');
     const txtOCs = document.getElementById('txtOCs');
+    const selectStatus = document.getElementById('selectStatus');
     const tbodyResultados = document.getElementById('tbodyResultados');
     const resumenContadores = document.getElementById('resumenContadores');
 
@@ -222,7 +240,6 @@
             const primeraHoja = workbook.SheetNames[0];
             const sheet = workbook.Sheets[primeraHoja];
             
-            // Convertimos a matriz de filas
             const filasRaw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
             
             let headerRowIndex = -1;
@@ -276,7 +293,6 @@
     function obtenerFiltrosOC() {
         const rawText = txtOCs.value;
         if (!rawText.trim()) return [];
-        // Separamos por comas, saltos de línea o tabulaciones
         return rawText.split(/[\n,;\t]+/).map(oc => oc.trim().toLowerCase()).filter(oc => oc.length > 0);
     }
 
@@ -285,50 +301,59 @@
 
         const filtroCliente = txtCliente.value.toLowerCase().trim();
         const filtrosOC = obtenerFiltrosOC();
+        const filtroEstatusSel = selectStatus.value;
 
         let registrosFiltrados = [];
         let ocsNoEncontradas = [...filtrosOC];
 
         if (filtrosOC.length > 0) {
-            // Si el usuario puso OCs específicas, priorizamos cruzarlas todas
             datosGlobales.forEach(reg => {
                 const regOc = reg.referencia.toLowerCase();
                 const matchOc = filtrosOC.some(f => regOc.includes(f));
                 
                 if (matchOc) {
-                    // Validamos también si coincide el filtro de cliente si se especificó
                     if (!filtroCliente || reg.nombre.toLowerCase().includes(filtroCliente)) {
                         registrosFiltrados.push(reg);
-                        // Quitamos de la lista de no encontradas
                         ocsNoEncontradas = ocsNoEncontradas.filter(f => !regOc.includes(f));
                     }
                 }
             });
         } else {
-            // Si no hay OCs masivas pasadas, filtramos libremente por cliente
             registrosFiltrados = datosGlobales.filter(reg => {
                 return !filtroCliente || reg.nombre.toLowerCase().includes(filtroCliente);
             });
         }
 
-        // Renderizado en la tabla
+        // Aplicar el Filtro por Estatus secundario
+        if (filtroEstatusSel !== "TODOS") {
+            if (filtroEstatusSel === "CONCLUIDO") {
+                registrosFiltrados = registrosFiltrados.filter(r => r.status.toLowerCase().includes('concluido'));
+                ocsNoEncontradas = []; // En este filtro no aplican los no cargados
+            } else if (filtroEstatusSel === "PENDIENTE") {
+                registrosFiltrados = registrosFiltrados.filter(r => !r.status.toLowerCase().includes('concluido'));
+                ocsNoEncontradas = []; 
+            } else if (filtroEstatusSel === "NO_CARGADO") {
+                registrosFiltrados = []; // Solo queremos ver las ocsNoEncontradas
+            }
+        }
+
         let html = "";
         
-        // Primero metemos las que alertan que NO están cargadas en el sistema
-        if (filtrosOC.length > 0) {
+        // Renderizar bloque de NO CARGADOS (Si aplica)
+        if (filtroEstatusSel === "TODOS" || filtroEstatusSel === "NO_CARGADO") {
             ocsNoEncontradas.forEach(oc => {
-                html += `<tr>
+                html += `<tr class="fila-tabla-datos">
                             <td class="status-no-cargado">${oc.toUpperCase()}</td>
                             <td class="status-no-cargado">❌ NO CARGADO</td>
-                            <td colspan="4" style="color:#991b1b; text-align:left; font-weight:500;">Falta ingresar este pedido al sistema.</td>
+                            <td colspan="4" style="color:#991b1b; text-align:left; font-weight:500;">Pedido sin registrar en el sistema.</td>
                          </tr>`;
             });
         }
 
-        // Metemos las posiciones reales encontradas
+        // Renderizar registros reales encontradas
         registrosFiltrados.forEach(r => {
             let claseStatus = r.status.toLowerCase().includes('concluido') ? 'status-concluido' : 'status-pendiente';
-            html += `<tr>
+            html += `<tr class="fila-tabla-datos">
                         <td><b>${r.referencia || '-'}</b></td>
                         <td>${r.docVentas}</td>
                         <td style="text-align:left;">${r.nombre}</td>
@@ -339,77 +364,42 @@
         });
 
         tbodyResultados.innerHTML = html;
-        resumenContadores.textContent = `Resultados: ${registrosFiltrados.length} posiciones encontradas.` + 
-            (filtrosOC.length > 0 ? ` (${ocsNoEncontradas.length} sin cargar en SAP).` : '');
+        
+        let conteoVisibles = registrosFiltrados.length + ocsNoEncontradas.length;
+        resumenContadores.textContent = `Resultados: ${conteoVisibles} posiciones en vista actual.` + 
+            (filtrosOC.length > 0 && filtroEstatusSel === "TODOS" ? ` (${ocsNoEncontradas.length} faltantes sin cargar).` : '');
     }
 
-    function copiarFormato(tipo) {
-        const filas = tbodyResultados.querySelectorAll('tr');
-        if (!filas.length) return;
-
-        if (tipo === 'teams') {
-            let htmlTable = `<table border="1" style="border-collapse:collapse; font-family:Segoe UI,Arial; font-size:10pt; width:100%;">
-                                <tr style="background-color:#f1f5f9; font-weight:bold;">
-                                    <th style="padding:4px;">Referencia Cliente (OC)</th>
-                                    <th style="padding:4px;">Documento Ventas</th>
-                                    <th style="padding:4px;">Solicitante / Cliente</th>
-                                    <th style="padding:4px;">Descripción Material</th>
-                                    <th style="padding:4px;">Cant</th>
-                                    <th style="padding:4px;">Status Entrega</th>
-                                </tr>`;
-            filas.forEach(f => {
-                const c = f.querySelectorAll('td');
-                if(c.length === 3) { // Caso no cargado
-                    htmlTable += `<tr>
-                                    <td style="padding:4px; background-color:#fef2f2; color:#991b1b; font-weight:bold;">${c[0].textContent}</td>
-                                    <td style="padding:4px; background-color:#fef2f2; color:#991b1b; font-weight:bold;">❌ NO CARGADO</td>
-                                    <td colspan="4" style="padding:4px; color:#991b1b;">${c[2].textContent}</td>
-                                  </tr>`;
-                } else {
-                    htmlTable += `<tr>
-                                    <td style="padding:4px;"><b>${c[0].textContent}</b></td>
-                                    <td style="padding:4px; text-align:center;">${c[1].textContent}</td>
-                                    <td style="padding:4px;">${c[2].textContent}</td>
-                                    <td style="padding:4px;">${c[3].textContent}</td>
-                                    <td style="padding:4px; text-align:center;">${c[4].textContent}</td>
-                                    <td style="padding:4px; text-align:center;">${c[5].textContent}</td>
-                                  </tr>`;
-                }
-            });
-            htmlTable += `</table>`;
-
-            const blob = new Blob([htmlTable], { type: 'text/html' });
-            const item = new ClipboardItem({ 'text/html': blob });
-            navigator.clipboard.write([item]).then(() => marcarExito('btnTeams'));
-
-        } else if (tipo === 'pcp') {
-            let txt = "Referencia Cliente (OC)\tDocumento Ventas\tSolicitante\tMaterial\tCantidad\tStatus\n";
-            filas.forEach(f => {
-                const c = f.querySelectorAll('td');
-                if(c.length === 3) {
-                    txt += `${c[0].textContent}\t❌ NO CARGADO\t-\t-\t-\t-\n`;
-                } else {
-                    txt += `${c[0].textContent}\t${c[1].textContent}\t${c[2].textContent}\t${c[3].textContent}\t${c[4].textContent}\t${c[5].textContent}\n`;
-                }
-            });
-            navigator.clipboard.writeText(txt).then(() => marcarExito('btnPcp'));
+    function exportarExcel() {
+        const filas = tbodyResultados.querySelectorAll('tr.fila-tabla-datos');
+        if (!filas.length) {
+            alert("No hay datos en la tabla para exportar.");
+            return;
         }
-    }
 
-    function marcarExito(id) {
-        const btn = document.getElementById(id);
-        const originalText = btn.textContent;
-        btn.textContent = "¡Copiado!";
-        btn.classList.add('success');
-        setTimeout(() => {
-            btn.textContent = originalText;
-            btn.classList.remove('success');
-        }, 1500);
+        // Creamos la estructura limpia para la hoja de cálculo
+        const matrizExcel = [
+            ["Referencia Cliente (OC)", "Documento Ventas", "Solicitante / Cliente", "Descripción Material", "Cant. Pedido", "Status Entrega"]
+        ];
+
+        filas.forEach(f => {
+            const c = f.querySelectorAll('td');
+            if (c.length === 3) {
+                // Caso No Cargado
+                matrizExcel.push([c[0].textContent, "❌ NO CARGADO", "-", "-", "-", "Falta ingresar a SAP"]);
+            } else if (c.length >= 6) {
+                matrizExcel.push([c[0].textContent, c[1].textContent, c[2].textContent, c[3].textContent, parseInt(c[4].textContent) || 0, c[5].textContent]);
+            }
+        });
+
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.aoa_to_sheet(matrizExcel);
+        XLSX.utils.book_append_sheet(wb, ws, "Control_OC_VA05");
+        
+        // Descarga
+        XLSX.writeFile(wb, "Control_Cumplimiento_OCs.xlsx");
     }
 </script>
 
 </body>
 </html>
-
-
-
